@@ -1,0 +1,16 @@
+[project]
+name = "cvat-tool"
+version = "0.1.0"
+description = "CLI tool based on CVAT SDK"
+readme = "README.md"
+requires-python = ">=3.10,<3.11"
+dependencies = [
+  "cvat-sdk>=2.0.0",
+  "numpy==1.24.4",
+  "matplotlib==3.7.5",
+  "scipy==1.11.4",
+  "pytest==7.4.4"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "tests"]
