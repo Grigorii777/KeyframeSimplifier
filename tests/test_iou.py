@@ -320,6 +320,7 @@ class TestEdgeCases:
         # Compute IoU
         calculator = VolumeIntersectionCalculator(box1, box2)
         iou_value = calculator.calculate_iou()
+        print(f"Computed IoU: {iou_value}")
         
         # Verify result validity
         assert 0.0 <= iou_value <= 1.0, f"IoU must be in [0,1], got: {iou_value}"
@@ -392,3 +393,22 @@ class TestVolumeIntersectionCalculatorExtra:
             calc = VolumeIntersectionCalculator(box1, box2)
             iou = calc.calculate_iou()
             assert 0.0 <= iou <= 1.0
+
+def test_iou_identical_rotated_boxes():
+    """
+    Test IoU for two identical boxes with different rotations at the same position.
+    """
+    rotation1 = _rot3d(np.deg2rad(30), np.deg2rad(20), np.deg2rad(45))
+    position1 = np.array([0, 0, 0])
+    scale1 = np.array([3.0, 2.0, 4.0])
+    box1 = OBB3D.from_pose_and_size(rotation1, position1, scale1)
+
+    rotation2 = _rot3d(np.deg2rad(45), np.deg2rad(20), np.deg2rad(45))
+    position2 = np.array([0, 0, 0])
+    scale2 = np.array([3.0, 2.0, 4.0])
+    box2 = OBB3D.from_pose_and_size(rotation2, position2, scale2)
+
+    calculator = VolumeIntersectionCalculator(box1, box2)
+    iou_value = calculator.calculate_iou()
+    # IoU should be significant, but less than 1 due to different rotations
+    assert 0.5 < iou_value < 1.0, f"IoU is out of expected range: {iou_value}"

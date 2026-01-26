@@ -122,12 +122,12 @@ class VolumeIntersectionCalculator:
         return _POS if dist > _EPS else (_NEG if dist < -_EPS else _ZERO)
 
     def _edge_plane_isect(self, plane_pt, v1, v2, axis):
-        t = (v2[axis] - plane_pt[axis]) / (v2[axis] - v1[axis])
-        return t * v1 + (1 - t) * v2
-
-    def _edge_plane_isect(self, plane_coord, v1, v2, axis):
-        t = (v2[axis] - plane_coord) / (v2[axis] - v1[axis])
-        return t * v1 + (1 - t) * v2
+        """Calculate intersection of edge (v1,v2) with plane defined by plane_pt and axis."""
+        if abs(v2[axis] - v1[axis]) < 1e-10:
+            # Edge is parallel to plane, return midpoint
+            return (v1 + v2) / 2
+        t = (plane_pt[axis] - v1[axis]) / (v2[axis] - v1[axis])
+        return v1 + t * (v2 - v1)
     
     def calculate_iou(self):
         self._pts = []
@@ -137,10 +137,14 @@ class VolumeIntersectionCalculator:
         if not self._pts:
             return 0.0
         
+        # Need at least 4 points to form a 3D volume
+        if len(self._pts) < 4:
+            return 0.0
+        
         try:
             hull = ConvexHull(np.array(self._pts))
             i_vol = hull.volume
-        except:
+        except Exception as e:
             return 0.0
         
         u_vol = self._a.volume + self._b.volume - i_vol
@@ -148,29 +152,42 @@ class VolumeIntersectionCalculator:
     
     def _extract(self, src, tpl):
         inv = np.linalg.inv(src.transform_matrix)
-        src_loc = src.transform(inv)
-        tpl_loc = tpl.transform(inv)
         
-        # Process each face
+        # Transform tpl keypoints to src's local coordinate system
+        tpl_kp_local = []
+        for i in range(9):
+            world_pt = tpl.keypoints[i]
+            local_pt = inv[:3, :3] @ world_pt + inv[:3, 3]
+            tpl_kp_local.append(local_pt)
+        
+        # Process each face of tpl
         for f_id in range(len(_GeometryConstants.FACE_INDICES)):
             f_verts = _GeometryConstants.FACE_INDICES[f_id]
-            poly = [tpl_loc.keypoints[f_verts[i]] for i in range(4)]
-            clipped = self._clip_box(src_loc, poly)
+            poly = [tpl_kp_local[f_verts[i]] for i in range(4)]
+            clipped = self._clip_box_by_dims(src.dimensions, poly)
             for loc_pt in clipped:
                 world_pt = src.rotation_matrix @ loc_pt + src.position
                 self._pts.append(world_pt)
         
         # Add contained vertices
+        half_dims = src.dimensions / 2
         for i in range(9):
-            if src_loc.contains_point(tpl_loc.keypoints[i]):
-                world_pt = src.rotation_matrix @ tpl_loc.keypoints[i] + src.position
+            loc_pt = tpl_kp_local[i]
+            # Check if point is inside axis-aligned box
+            if all(abs(loc_pt[ax]) <= half_dims[ax] for ax in range(3)):
+                world_pt = src.rotation_matrix @ loc_pt + src.position
                 self._pts.append(world_pt)
 
     def _clip_ax(self, poly, plane_pt, direction, axis):
+        """
+        Clip polygon against a plane.
+        direction = 1: keep points where pt[axis] >= plane_pt[axis] (positive side)
+        direction = -1: keep points where pt[axis] <= plane_pt[axis] (negative side)
+        """
         if len(poly) <= 1:
             return []
         
-        out, all_on = [], True
+        out = []
         n = len(poly)
         
         for i in range(n):
@@ -178,35 +195,62 @@ class VolumeIntersectionCalculator:
             prev_cls = self._pt_vs_plane(prev, plane_pt, direction, axis)
             curr_cls = self._pt_vs_plane(curr, plane_pt, direction, axis)
             
+            # Current point is on negative side (outside)
             if curr_cls == _NEG:
-                all_on = False
                 if prev_cls == _POS:
+                    # Edge crosses from inside to outside - add intersection
                     out.append(self._edge_plane_isect(plane_pt, prev, curr, axis))
-                elif prev_cls == _ZERO and (not out or not np.array_equal(out[-1], prev)):
-                    out.append(prev)
+                elif prev_cls == _ZERO:
+                    # Previous was on plane - add it if not duplicate
+                    if not out or not np.array_equal(out[-1], prev):
+                        out.append(prev)
+            # Current point is on positive side (inside)
             elif curr_cls == _POS:
-                all_on = False
                 if prev_cls == _NEG:
+                    # Edge crosses from outside to inside - add intersection then current
                     out.append(self._edge_plane_isect(plane_pt, prev, curr, axis))
-                elif prev_cls == _ZERO and (not out or not np.array_equal(out[-1], prev)):
-                    out.append(prev)
+                elif prev_cls == _ZERO:
+                    # Previous was on plane - add it if not duplicate
+                    if not out or not np.array_equal(out[-1], prev):
+                        out.append(prev)
                 out.append(curr)
-            else:  # ON
-                if prev_cls != _ZERO:
+            # Current point is on the plane
+            else:  # _ZERO
+                if prev_cls == _POS:
+                    # Coming from inside - add current
+                    out.append(curr)
+                elif prev_cls == _NEG:
+                    # Coming from outside - add current  
+                    out.append(curr)
+                # If prev was also on plane, add current only if not duplicate
+                elif not out or not np.array_equal(out[-1], curr):
                     out.append(curr)
         
-        return poly if all_on else out
+        return out
   
-    def _clip_box(self, box, poly):
+    def _clip_box_by_dims(self, dims, poly):
+        """Clip polygon against axis-aligned box with given dimensions (centered at origin)."""
         w = poly
+        half_dims = dims / 2
+        # Clip against axis-aligned boundaries in local space
         for ax in range(3):
-            w = self._clip_ax(w, box.keypoints[1], 1, ax)
+            # Create plane points at -half_dim and +half_dim for each axis
+            plane_min = np.zeros(3)
+            plane_min[ax] = -half_dims[ax]
+            plane_max = np.zeros(3)
+            plane_max[ax] = half_dims[ax]
+            
+            w = self._clip_ax(w, plane_min, 1, ax)
             if not w:
                 return []
-            w = self._clip_ax(w, box.keypoints[8], -1, ax)
+            w = self._clip_ax(w, plane_max, -1, ax)
             if not w:
                 return []
         return w
+    
+    def _clip_box(self, box, poly):
+        """Deprecated: use _clip_box_by_dims instead."""
+        return self._clip_box_by_dims(box.dimensions, poly)
 
     def calculate_iou_monte_carlo(self, sample_count=10000):
         pts_a = [self._a.sample_random_point() for _ in range(sample_count)]
