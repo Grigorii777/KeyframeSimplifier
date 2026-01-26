@@ -1,7 +1,10 @@
+
 import argparse
+import dotenv
 from .keyframe_handler import KeyframeHandler
 
 def main():
+    dotenv.load_dotenv()
     parser = argparse.ArgumentParser(description="Keyframe simplification CLI for CVAT jobs.")
     parser.add_argument("--job-id", type=int, required=True, help="CVAT job ID to process")
     parser.add_argument(

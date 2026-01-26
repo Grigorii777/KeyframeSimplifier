@@ -12,3 +12,7 @@ uv run python -V
 uv run python -c "import sys; print(sys.executable)"
 uv run python -m ensurepip --upgrade
 ```
+
+```bash
+uv pip install -e .
+```

@@ -10,6 +10,9 @@ from .keyframes import distance_l1, distance_l2, distance_max, choose_keyframes
 import numpy as np
 from cvat_sdk.core.client import Client, Config
 from cvat_sdk import models
+import dotenv
+
+dotenv.load_dotenv()
 
 Vector = np.ndarray[Any, np.dtype[np.float_]]
 
@@ -51,7 +54,7 @@ class KeyframeHandler:
         self.backup_dir.mkdir(exist_ok=True)
         self.cvat_url = os.getenv("CVAT_HOST", "http://localhost:7000")
         self.username = os.getenv("CVAT_USERNAME", "admin")
-        self.password = os.getenv("CVAT_PASSWORD", "12qwaszx")
+        self.password = os.getenv("CVAT_PASSWORD", "password")
 
     def prepare_keyframes_from_shapes(self, shapes) -> list[Keyframe]:
         """Convert shapes to Keyframe objects."""
