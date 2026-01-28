@@ -5,46 +5,22 @@ from typing import Any, Optional
 import json
 from datetime import datetime
 from pathlib import Path
+import urllib3
 
-from .keyframes import distance_l1, distance_l2, distance_max, choose_keyframes
+from cvat_tool.dto import DISTANCE_FUNCTIONS, Keyframe, KeyframeField, KeyframeSimplifyingMethod, KeyframesField
+
+from .keyframe_iou import choose_keyframes_iou
+
+from .keyframes import choose_keyframes
 import numpy as np
 from cvat_sdk.core.client import Client, Config
 from cvat_sdk import models
 import dotenv
 
+# Disable SSL warnings when verify_ssl=False is used
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 dotenv.load_dotenv()
-
-Vector = np.ndarray[Any, np.dtype[np.float_]]
-
-class KeyframeSimplifyingMethod(enum.Enum):
-    L_INF = "l_inf"
-    L1 = "l1"
-    L2 = "l2"
-
-DISTANCE_FUNCTIONS = {
-    KeyframeSimplifyingMethod.L_INF: distance_max,
-    KeyframeSimplifyingMethod.L1: distance_l1,
-    KeyframeSimplifyingMethod.L2: distance_l2,
-}
-
-
-@dataclass
-class Keyframe:
-    frame_id: int
-    position: Vector
-    rotation: Vector
-    scale: Vector
-
-class KeyframeField(enum.Enum):
-    POSITION = "position"
-    ROTATION = "rotation"
-    SCALE = "scale"
-
-@dataclass
-class KeyframesField:
-    keyframe_field: KeyframeField
-    threshold: float
-    method: KeyframeSimplifyingMethod
 
 
 class KeyframeHandler:
@@ -69,10 +45,10 @@ class KeyframeHandler:
             keyframes.append(kf)
         return keyframes
 
-    def get_simplified_frame_ids(self, shapes, fields: list[KeyframesField]) -> set[int]:
+    def get_simplified_frame_ids(self, shapes, fields: list[KeyframesField] = None, iou_threshold: float = 0.8, auto_percent: float = 5.0) -> set[int]:
         """Get set of frame_ids after simplification."""
         keyframes = self.prepare_keyframes_from_shapes(shapes)
-        simplified = self.simplifying(fields=fields, keyframes=keyframes)
+        simplified = self.simplifying(keyframes=keyframes, iou_threshold=iou_threshold, fields=fields, auto_percent=auto_percent)
         return set(kf.frame_id for kf in simplified)
 
     def prepare_tracked_shape_requests(self, shapes, frame_ids: set[int]):
@@ -106,13 +82,72 @@ class KeyframeHandler:
             elements=track.elements if hasattr(track, 'elements') else []
         )
 
-    def simplifying(self, fields: list[KeyframesField], keyframes: list[Keyframe]) -> list[Keyframe]:
+    def auto_calculate_fields(self, keyframes: list[Keyframe], percent: float) -> list[KeyframesField]:
+        """Auto-calculate threshold fields based on percentage of max distances."""
+        if len(keyframes) < 2:
+            return []
+        
+        fields = []
+        
+        # Position: percent of max distance between keyframes
+        positions = np.array([kf.position for kf in keyframes])
+        max_pos_dist = np.max(np.linalg.norm(np.diff(positions, axis=0), axis=1))
+        pos_threshold = max_pos_dist * (percent / 100.0)
+        fields.append(KeyframesField(
+            keyframe_field=KeyframeField.POSITION,
+            threshold=pos_threshold,
+            method=KeyframeSimplifyingMethod.L2
+        ))
+        print(f"Auto-calculated position threshold: {pos_threshold:.4f} ({percent}% of max distance {max_pos_dist:.4f})")
+        
+        # Scale: percent of max distance between keyframes
+        scales = np.array([kf.scale for kf in keyframes])
+        max_scale_dist = np.max(np.linalg.norm(np.diff(scales, axis=0), axis=1))
+        scale_threshold = max_scale_dist * (percent / 100.0)
+        fields.append(KeyframesField(
+            keyframe_field=KeyframeField.SCALE,
+            threshold=scale_threshold,
+            method=KeyframeSimplifyingMethod.L2
+        ))
+        print(f"Auto-calculated scale threshold: {scale_threshold:.4f} ({percent}% of max distance {max_scale_dist:.4f})")
+        
+        # Rotation: percent of range [-π, π] = 2π
+        rotation_range = 2 * np.pi
+        rot_threshold = rotation_range * (percent / 100.0)
+        fields.append(KeyframesField(
+            keyframe_field=KeyframeField.ROTATION,
+            threshold=rot_threshold,
+            method=KeyframeSimplifyingMethod.L_INF
+        ))
+        print(f"Auto-calculated rotation threshold: {rot_threshold:.4f} ({percent}% of range {rotation_range:.4f})")
+        
+        return fields
+
+    def simplifying(self, keyframes: list[Keyframe], iou_threshold: float = 0.8, fields: list[KeyframesField] = None, auto_percent: float = 5.0) -> list[Keyframe]:
+        # Auto-calculate fields if not provided
+        if fields is None and auto_percent > 0:
+            fields = self.auto_calculate_fields(keyframes, auto_percent)
+        elif fields is None:
+            fields = []
+        
+        if not fields and iou_threshold > 1.0:
+            return keyframes  # No simplification needed
+        
+        # Start with empty set - each filter can ADD keyframes
         keyframe_indices = set()
+        
+        # IOU-based simplification (only if threshold <= 1.0)
+        if iou_threshold <= 1.0 and iou_threshold >= 0.0:
+            result = set(choose_keyframes_iou(keyframes, iou_threshold=iou_threshold))
+            keyframe_indices |= result  # union
+        
+        # Field-based simplification
         for field in fields:
             if field.threshold > 0:
                 arr = np.array([getattr(kf, field.keyframe_field.value) for kf in keyframes])
                 indices = set(choose_keyframes(arr, DISTANCE_FUNCTIONS[field.method], field.threshold))
-                keyframe_indices.update(indices)
+                keyframe_indices |= indices  # union
+        
         return [keyframes[i] for i in sorted(keyframe_indices)]
 
     @staticmethod
@@ -194,14 +229,16 @@ class KeyframeHandler:
             client.logout()
             print("Disconnecting from CVAT API")
 
-    def simplifying_job(self, job_id: int, fields: list[KeyframesField]) -> None:
+    def simplifying_job(self, job_id: int, fields: list[KeyframesField] = None, iou_threshold: float = 0.8, auto_percent: float = 5.0) -> None:
         """
         Automatically downloads annotations from CVAT API, simplifies keyframes,
         and uploads updated annotations back.
 
         Args:
             job_id: Job ID in CVAT
-            fields: List of fields with simplification settings
+            fields: List of fields with simplification settings (auto-calculated if None)
+            iou_threshold: IOU threshold for simplification
+            auto_percent: Percentage for auto-calculating thresholds when fields is None
         """
 
         print(f"Connecting to CVAT API: {self.cvat_url}")
@@ -215,7 +252,7 @@ class KeyframeHandler:
             print("Downloading annotations...")
             annotations_data = job.get_annotations()
 
-            print("Annotations downloaded:", annotations_data)
+            # print("Annotations downloaded:", annotations_data)
 
             print(f"Received tracks: {len(annotations_data.tracks)}")
             print(f"Received shapes: {len(annotations_data.shapes)}")
@@ -238,7 +275,7 @@ class KeyframeHandler:
 
                 print(f"\nProcessing track {track.id} with {len(shapes)} frames")
 
-                simplified_frame_ids = self.get_simplified_frame_ids(shapes, fields)
+                simplified_frame_ids = self.get_simplified_frame_ids(shapes, fields, iou_threshold, auto_percent)
                 print(f"Simplified from {len(shapes)} to {len(simplified_frame_ids)} frames")
                 updated_shapes = self.prepare_tracked_shape_requests(shapes, simplified_frame_ids)
                 updated_track = self.build_updated_track(track, updated_shapes)

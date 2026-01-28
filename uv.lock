@@ -66,14 +66,18 @@ wheels = [
 [[package]]
 name = "cvat-tool"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "cvat-sdk" },
     { name = "matplotlib" },
     { name = "numpy" },
-    { name = "pytest" },
     { name = "python-dotenv" },
     { name = "scipy" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -81,10 +85,11 @@ requires-dist = [
     { name = "cvat-sdk", specifier = ">=2.0.0" },
     { name = "matplotlib", specifier = "==3.7.5" },
     { name = "numpy", specifier = "==1.24.4" },
-    { name = "pytest", specifier = "==7.4.4" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = "==7.4.4" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "scipy", specifier = "==1.11.4" },
 ]
+provides-extras = ["dev"]
 
 [[package]]
 name = "cycler"
