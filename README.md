@@ -1,10 +1,21 @@
 # KeyframeSimplifier
 Tool for simplification CVAT keyframes 
 
-# Dev installation (MacOS)
-
+Dev installation UV 
+## MacOS
 ```bash
 brew install uv
+uv --version
+```
+
+## Windows
+```bash
+powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex"
+uv --version
+```
+
+# Dev installation
+```bash
 uv venv
 uv sync
 uv pip install -e ".[dev]"
