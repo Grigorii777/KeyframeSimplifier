@@ -17,8 +17,6 @@ uv run cvat-tool --help
 
 # Run tests
 ```bash
-uv run pytest
-uv run pytest -v
 uv run pytest -v -s
 ```
 
