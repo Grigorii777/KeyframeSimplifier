@@ -8,7 +8,7 @@ brew install uv
 uv --version
 ```
 
-## Windows
+## Windows (Power shell)
 ```bash
 powershell -ExecutionPolicy Bypass -NoProfile -Command "irm https://astral.sh/uv/install.ps1 | iex"
 uv --version

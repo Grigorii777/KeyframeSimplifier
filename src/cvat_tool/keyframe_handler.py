@@ -56,6 +56,17 @@ class KeyframeHandler:
         requests = []
         for shape in shapes:
             if shape.frame in frame_ids:
+                # Convert AttributeVal to AttributeValRequest
+                attributes = []
+                if hasattr(shape, 'attributes') and shape.attributes:
+                    for attr in shape.attributes:
+                        attributes.append(
+                            models.AttributeValRequest(
+                                spec_id=attr.spec_id,
+                                value=attr.value
+                            )
+                        )
+                
                 requests.append(
                     models.TrackedShapeRequest(
                         frame=shape.frame,
@@ -65,7 +76,7 @@ class KeyframeHandler:
                         points=shape.points,
                         rotation=shape.rotation,
                         type=shape.type,
-                        attributes=shape.attributes if hasattr(shape, 'attributes') else []
+                        attributes=attributes
                     )
                 )
         return requests
@@ -245,6 +256,9 @@ class KeyframeHandler:
         client = Client(url=self.cvat_url, config=Config(verify_ssl=False))
         client.login((self.username, self.password))
 
+        len_shapes_sum = 0
+        len_simplified_shapes_sum = 0
+
         try:
             print(f"Retrieving job {job_id}...")
             job = client.jobs.retrieve(job_id)
@@ -277,6 +291,8 @@ class KeyframeHandler:
 
                 simplified_frame_ids = self.get_simplified_frame_ids(shapes, fields, iou_threshold, auto_percent)
                 print(f"Simplified from {len(shapes)} to {len(simplified_frame_ids)} frames")
+                len_shapes_sum += len(shapes)
+                len_simplified_shapes_sum += len(simplified_frame_ids)
                 updated_shapes = self.prepare_tracked_shape_requests(shapes, simplified_frame_ids)
                 updated_track = self.build_updated_track(track, updated_shapes)
                 updated_tracks.append(updated_track)
@@ -291,6 +307,9 @@ class KeyframeHandler:
             print("\nUploading updated annotations...")
             job.set_annotations(updated_annotations)
             print("✓ Annotations successfully updated!")
+            print("iou_threshold =", iou_threshold)
+            print(f"Total keyframes before simplification: {len_shapes_sum}")
+            print(f"Total keyframes after simplification: {len_simplified_shapes_sum}")
 
         finally:
             client.logout()
