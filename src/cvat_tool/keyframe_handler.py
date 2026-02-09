@@ -83,13 +83,24 @@ class KeyframeHandler:
 
     def build_updated_track(self, track, updated_shapes):
         """Create a new LabeledTrackRequest with updated shapes."""
+        # Convert AttributeVal to AttributeValRequest for track attributes
+        attributes = []
+        if hasattr(track, 'attributes') and track.attributes:
+            for attr in track.attributes:
+                attributes.append(
+                    models.AttributeValRequest(
+                        spec_id=attr.spec_id,
+                        value=attr.value
+                    )
+                )
+        
         return models.LabeledTrackRequest(
             frame=track.frame,
             label_id=track.label_id,
             group=track.group,
             source=track.source,
             shapes=updated_shapes,
-            attributes=track.attributes,
+            attributes=attributes,
             elements=track.elements if hasattr(track, 'elements') else []
         )
 
