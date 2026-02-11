@@ -104,6 +104,38 @@ class KeyframeHandler:
             elements=track.elements if hasattr(track, 'elements') else []
         )
 
+    def convert_shapes_to_requests(self, shapes):
+        """Convert LabeledShape objects to LabeledShapeRequest objects."""
+        requests = []
+        for shape in shapes:
+            # Convert AttributeVal to AttributeValRequest
+            attributes = []
+            if hasattr(shape, 'attributes') and shape.attributes:
+                for attr in shape.attributes:
+                    attributes.append(
+                        models.AttributeValRequest(
+                            spec_id=attr.spec_id,
+                            value=attr.value
+                        )
+                    )
+            
+            requests.append(
+                models.LabeledShapeRequest(
+                    frame=shape.frame,
+                    label_id=shape.label_id,
+                    group=shape.group,
+                    source=shape.source,
+                    type=shape.type,
+                    occluded=shape.occluded,
+                    z_order=shape.z_order,
+                    points=shape.points,
+                    rotation=shape.rotation,
+                    attributes=attributes,
+                    elements=shape.elements if hasattr(shape, 'elements') else []
+                )
+            )
+        return requests
+
     def auto_calculate_fields(self, keyframes: list[Keyframe], percent: float) -> list[KeyframesField]:
         """Auto-calculate threshold fields based on percentage of max distances."""
         if len(keyframes) < 2:
@@ -308,10 +340,13 @@ class KeyframeHandler:
                 updated_track = self.build_updated_track(track, updated_shapes)
                 updated_tracks.append(updated_track)
 
+            # Convert shapes to requests
+            updated_shapes = self.convert_shapes_to_requests(annotations_data.shapes)
+
             updated_annotations = models.LabeledDataRequest(
                 version=annotations_data.version,
                 tags=annotations_data.tags,
-                shapes=annotations_data.shapes,
+                shapes=updated_shapes,
                 tracks=updated_tracks
             )
 
