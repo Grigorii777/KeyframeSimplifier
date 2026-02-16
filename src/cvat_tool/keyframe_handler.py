@@ -6,6 +6,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 import urllib3
+from decimal import Decimal, ROUND_HALF_DOWN
 
 from cvat_tool.dto import DISTANCE_FUNCTIONS, Keyframe, KeyframeField, KeyframeSimplifyingMethod, KeyframesField
 
@@ -440,6 +441,15 @@ class KeyframeHandler:
         
         return label_map
 
+    @staticmethod
+    def round_down_half(value: float, decimals: int = 2) -> float:
+        """
+        Round number with ROUND_HALF_DOWN strategy.
+        0.475 → 0.47, 0.4751 → 0.48, 0.476 → 0.48
+        """
+        d = Decimal(str(value))
+        return float(d.quantize(Decimal(10) ** -decimals, rounding=ROUND_HALF_DOWN))
+
     def check_object_sizes(self, job_id: int) -> None:
         """
         Check object sizes in all frames and display frames where size differs from the first keyframe.
@@ -476,12 +486,12 @@ class KeyframeHandler:
 
                 # Get reference size from first keyframe
                 first_shape = shapes[0]
-                reference_scale = np.round(np.array(first_shape.points[6:9], dtype=float), 2)
+                reference_scale = np.array([self.round_down_half(v) for v in first_shape.points[6:9]])
 
                 # Check all frames for size differences
                 differences = []
                 for shape in shapes:
-                    current_scale = np.round(np.array(shape.points[6:9], dtype=float), 2)
+                    current_scale = np.array([self.round_down_half(v) for v in shape.points[6:9]])
                     
                     # Check if scale differs from reference on any axis
                     scale_diff = current_scale - reference_scale
