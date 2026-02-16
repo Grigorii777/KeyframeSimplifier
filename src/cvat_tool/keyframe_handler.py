@@ -409,6 +409,37 @@ class KeyframeHandler:
             client.logout()
             print("Disconnecting from CVAT API")
 
+    def get_label_map(self, client: Client, project_id: int) -> dict[int, str]:
+        """
+        Get mapping of label IDs to label names from project.
+        
+        Args:
+            client: CVAT client instance
+            project_id: Project ID
+            
+        Returns:
+            Dictionary mapping label IDs to label names
+        """
+        label_map = {}
+        try:
+            labels_response = client.api_client.labels_api.list(project_id=project_id)
+            
+            if hasattr(labels_response, 'results'):
+                for label in labels_response.results:
+                    if hasattr(label, 'id') and hasattr(label, 'name'):
+                        label_map[label.id] = label.name
+            elif isinstance(labels_response, tuple) and len(labels_response) > 0:
+                labels_list = labels_response[0]
+                if hasattr(labels_list, 'results'):
+                    for label in labels_list.results:
+                        if hasattr(label, 'id') and hasattr(label, 'name'):
+                            label_map[label.id] = label.name
+                        
+        except Exception as e:
+            print(f"Warning: Could not retrieve labels: {e}")
+        
+        return label_map
+
     def check_object_sizes(self, job_id: int) -> None:
         """
         Check object sizes in all frames and display frames where size differs from the first keyframe.
@@ -434,8 +465,11 @@ class KeyframeHandler:
                 print("No tracks to process")
                 return
 
+            # Get label names mapping from project
+            label_map = self.get_label_map(client, job.project_id)
+
             # Process each track
-            for track in annotations_data.tracks:
+            for track_index, track in enumerate(annotations_data.tracks):
                 shapes = track.shapes
                 if not shapes:
                     continue
@@ -443,13 +477,6 @@ class KeyframeHandler:
                 # Get reference size from first keyframe
                 first_shape = shapes[0]
                 reference_scale = np.array(first_shape.points[6:9], dtype=float)
-
-                print(f"\n{'='*80}")
-                print(f"Track ID: {track.id}")
-                print(f"Label: {track.label_id}")
-                print(f"Reference frame: {first_shape.frame}")
-                print(f"Reference scale: [{reference_scale[0]:.4f}, {reference_scale[1]:.4f}, {reference_scale[2]:.4f}]")
-                print(f"{'='*80}")
 
                 # Check all frames for size differences
                 differences = []
@@ -470,16 +497,24 @@ class KeyframeHandler:
                             'diff_z': scale_diff[2]
                         })
 
-                # Display results
+                # Display results only if there are differences
                 if differences:
+                    # Get label name
+                    label_name = label_map.get(track.label_id, f"Unknown (ID: {track.label_id})")
+
+                    print(f"\n{'='*80}")
+                    print(f"Object #{track_index} (Track ID: {track.id})")
+                    print(f"Label: {label_name}")
+                    print(f"Reference frame: {first_shape.frame}")
+                    print(f"Reference scale: [{reference_scale[0]:.4f}, {reference_scale[1]:.4f}, {reference_scale[2]:.4f}]")
+                    print(f"{'='*80}")
+
                     print(f"\nFound {len(differences)} frames with different size:\n")
                     print(f"{'Frame':<10} {'Scale [X, Y, Z]':<35} {'Diff X':<15} {'Diff Y':<15} {'Diff Z':<15}")
                     print("-" * 90)
                     for diff in differences:
                         scale_str = f"[{diff['scale'][0]:.4f}, {diff['scale'][1]:.4f}, {diff['scale'][2]:.4f}]"
                         print(f"{diff['frame']:<10} {scale_str:<35} {diff['diff_x']:<15.4f} {diff['diff_y']:<15.4f} {diff['diff_z']:<15.4f}")
-                else:
-                    print(f"\nAll frames have the same size as reference")
 
         finally:
             client.logout()
