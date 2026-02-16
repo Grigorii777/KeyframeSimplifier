@@ -20,6 +20,7 @@ def main():
         help="Percentage for auto-calculating thresholds when --field is not specified. Set to 0 to disable (default). Example: --auto-percent 1.0"
     )
     parser.add_argument("--undo", action="store_true", help="Restore annotations from the latest backup")
+    parser.add_argument("--size-check", action="store_true", help="Check and display frames where object size differs from the first keyframe")
 
     args = parser.parse_args()
     handler = KeyframeHandler()
@@ -27,6 +28,9 @@ def main():
     if args.undo:
         print(f"Restoring job {args.job_id} from backup...")
         handler.restore_from_backup(args.job_id)
+    elif args.size_check:
+        print(f"Checking object sizes for job {args.job_id}...")
+        handler.check_object_sizes(args.job_id)
     else:
         fields = None
         if args.field:

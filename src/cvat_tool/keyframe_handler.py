@@ -409,6 +409,82 @@ class KeyframeHandler:
             client.logout()
             print("Disconnecting from CVAT API")
 
+    def check_object_sizes(self, job_id: int) -> None:
+        """
+        Check object sizes in all frames and display frames where size differs from the first keyframe.
+        
+        Args:
+            job_id: Job ID in CVAT
+        """
+        print(f"Connecting to CVAT API: {self.cvat_url}")
+        client = Client(url=self.cvat_url, config=Config(verify_ssl=False))
+        client.login((self.username, self.password))
+
+        try:
+            print(f"Retrieving job {job_id}...")
+            job = client.jobs.retrieve(job_id)
+
+            print("Downloading annotations...")
+            annotations_data = job.get_annotations()
+
+            print(f"Received tracks: {len(annotations_data.tracks)}")
+            print(f"Received shapes: {len(annotations_data.shapes)}")
+
+            if not annotations_data.tracks:
+                print("No tracks to process")
+                return
+
+            # Process each track
+            for track in annotations_data.tracks:
+                shapes = track.shapes
+                if not shapes:
+                    continue
+
+                # Get reference size from first keyframe
+                first_shape = shapes[0]
+                reference_scale = np.array(first_shape.points[6:9], dtype=float)
+
+                print(f"\n{'='*80}")
+                print(f"Track ID: {track.id}")
+                print(f"Label: {track.label_id}")
+                print(f"Reference frame: {first_shape.frame}")
+                print(f"Reference scale: [{reference_scale[0]:.4f}, {reference_scale[1]:.4f}, {reference_scale[2]:.4f}]")
+                print(f"{'='*80}")
+
+                # Check all frames for size differences
+                differences = []
+                for shape in shapes:
+                    current_scale = np.array(shape.points[6:9], dtype=float)
+                    
+                    # Check if scale differs from reference on any axis
+                    scale_diff = current_scale - reference_scale
+                    is_different = not np.allclose(current_scale, reference_scale, rtol=1e-5, atol=1e-8)
+                    
+                    # Store if scale is different from reference
+                    if is_different:
+                        differences.append({
+                            'frame': shape.frame,
+                            'scale': current_scale,
+                            'diff_x': scale_diff[0],
+                            'diff_y': scale_diff[1],
+                            'diff_z': scale_diff[2]
+                        })
+
+                # Display results
+                if differences:
+                    print(f"\nFound {len(differences)} frames with different size:\n")
+                    print(f"{'Frame':<10} {'Scale [X, Y, Z]':<35} {'Diff X':<15} {'Diff Y':<15} {'Diff Z':<15}")
+                    print("-" * 90)
+                    for diff in differences:
+                        scale_str = f"[{diff['scale'][0]:.4f}, {diff['scale'][1]:.4f}, {diff['scale'][2]:.4f}]"
+                        print(f"{diff['frame']:<10} {scale_str:<35} {diff['diff_x']:<15.4f} {diff['diff_y']:<15.4f} {diff['diff_z']:<15.4f}")
+                else:
+                    print(f"\nAll frames have the same size as reference")
+
+        finally:
+            client.logout()
+            print("\nDisconnecting from CVAT API")
+
     @staticmethod
     def parse_fields(fields_args):
         """

@@ -52,6 +52,19 @@ uv run cvat-tool --job-id 3529725 --iou-threshold 0.7
 uv run cvat-tool --job-id 3529725 --undo
 ```
 
+## Size Check (Analysis tool)
+
+```bash
+# Check object size consistency across frames
+# Displays all frames where object size differs from the first keyframe
+uv run cvat-tool --job-id 3529725 --size-check
+```
+
+This tool analyzes each tracked object and:
+- Records the reference size from the first keyframe
+- Compares all subsequent frames against this reference on each axis (X, Y, Z)
+- Displays a table showing all frames where size is not equal to the reference
+
 ## Field-based simplification (Additional, NOT tested with IoU)
 
 ```bash
