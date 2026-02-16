@@ -41,6 +41,7 @@ class KeyframeHandler:
                 position=np.array(shape.points[:3], dtype=float),
                 rotation=np.array(shape.points[3:6], dtype=float),
                 scale=np.array(shape.points[6:9], dtype=float),
+                outside=shape.outside,
             )
             keyframes.append(kf)
         return keyframes
@@ -48,8 +49,51 @@ class KeyframeHandler:
     def get_simplified_frame_ids(self, shapes, fields: list[KeyframesField] = None, iou_threshold: float = 0.8, auto_percent: float = 5.0) -> set[int]:
         """Get set of frame_ids after simplification."""
         keyframes = self.prepare_keyframes_from_shapes(shapes)
-        simplified = self.simplifying(keyframes=keyframes, iou_threshold=iou_threshold, fields=fields, auto_percent=auto_percent)
-        return set(kf.frame_id for kf in simplified)
+        
+        # Find all outside keyframes
+        outside_indices = {i for i, kf in enumerate(keyframes) if kf.outside}
+        
+        # Split keyframes into segments between outside frames
+        segments = []
+        sorted_outside = sorted(outside_indices)
+        
+        # Add segments before each outside frame
+        start = 0
+        for idx in sorted_outside:
+            if start < idx:
+                segments.append((start, idx))
+            start = idx + 1
+        
+        # Add final segment after last outside frame (if any frames remain)
+        if start < len(keyframes):
+            segments.append((start, len(keyframes)))
+        
+        # Collect all frame IDs to keep
+        frame_ids = set()
+        
+        # Always keep outside frames
+        for idx in outside_indices:
+            frame_ids.add(keyframes[idx].frame_id)
+        
+        # Process each segment independently
+        for seg_start, seg_end in segments:
+            segment_keyframes = keyframes[seg_start:seg_end]
+            if not segment_keyframes:
+                continue
+            
+            # Simplify this segment
+            simplified_segment = self.simplifying(keyframes=segment_keyframes, iou_threshold=iou_threshold, fields=fields, auto_percent=auto_percent)
+            
+            # If segment is right after outside frame and has keyframes, ensure first keyframe is included
+            if seg_start > 0 and (seg_start - 1) in outside_indices and simplified_segment:
+                # Add first keyframe from simplified segment
+                frame_ids.add(simplified_segment[0].frame_id)
+            
+            # Add all other keyframes from simplified segment
+            for kf in simplified_segment:
+                frame_ids.add(kf.frame_id)
+        
+        return frame_ids
 
     def prepare_tracked_shape_requests(self, shapes, frame_ids: set[int]):
         """Convert shapes to TrackedShapeRequest for given frame_ids."""
@@ -178,6 +222,7 @@ class KeyframeHandler:
         return fields
 
     def simplifying(self, keyframes: list[Keyframe], iou_threshold: float = 0.8, fields: list[KeyframesField] = None, auto_percent: float = 5.0) -> list[Keyframe]:
+        """Simplify a list of keyframes without outside frames."""
         # Auto-calculate fields if not provided
         if fields is None and auto_percent > 0:
             fields = self.auto_calculate_fields(keyframes, auto_percent)
@@ -330,12 +375,15 @@ class KeyframeHandler:
                     updated_tracks.append(track)
                     continue
 
-                print(f"\nProcessing track {track.id} with {len(shapes)} frames")
+                # Count only non-outside frames for statistics
+                non_outside_shapes = [s for s in shapes if not s.outside]
+                print(f"\nProcessing track {track.id} with {len(shapes)} frames ({len(non_outside_shapes)} non-outside)")
 
                 simplified_frame_ids = self.get_simplified_frame_ids(shapes, fields, iou_threshold, auto_percent)
-                print(f"Simplified from {len(shapes)} to {len(simplified_frame_ids)} frames")
-                len_shapes_sum += len(shapes)
-                len_simplified_shapes_sum += len(simplified_frame_ids)
+                non_outside_simplified = len([fid for fid in simplified_frame_ids if any(s.frame == fid and not s.outside for s in shapes)])
+                print(f"Simplified from {len(non_outside_shapes)} to {non_outside_simplified} frames (excluding outside)")
+                len_shapes_sum += len(non_outside_shapes)
+                len_simplified_shapes_sum += non_outside_simplified
                 updated_shapes = self.prepare_tracked_shape_requests(shapes, simplified_frame_ids)
                 updated_track = self.build_updated_track(track, updated_shapes)
                 updated_tracks.append(updated_track)

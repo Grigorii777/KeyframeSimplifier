@@ -26,6 +26,7 @@ class Keyframe:
     position: Vector
     rotation: Vector
     scale: Vector
+    outside: bool = False
 
 class KeyframeField(enum.Enum):
     POSITION = "position"
