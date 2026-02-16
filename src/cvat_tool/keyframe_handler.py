@@ -476,12 +476,12 @@ class KeyframeHandler:
 
                 # Get reference size from first keyframe
                 first_shape = shapes[0]
-                reference_scale = np.array(first_shape.points[6:9], dtype=float)
+                reference_scale = np.round(np.array(first_shape.points[6:9], dtype=float), 2)
 
                 # Check all frames for size differences
                 differences = []
                 for shape in shapes:
-                    current_scale = np.array(shape.points[6:9], dtype=float)
+                    current_scale = np.round(np.array(shape.points[6:9], dtype=float), 2)
                     
                     # Check if scale differs from reference on any axis
                     scale_diff = current_scale - reference_scale
@@ -503,18 +503,18 @@ class KeyframeHandler:
                     label_name = label_map.get(track.label_id, f"Unknown (ID: {track.label_id})")
 
                     print(f"\n{'='*80}")
-                    print(f"Object #{track_index} (Track ID: {track.id})")
+                    print(f"Object #{track_index + 1} (Track ID: {track.id})")
                     print(f"Label: {label_name}")
                     print(f"Reference frame: {first_shape.frame}")
-                    print(f"Reference scale: [{reference_scale[0]:.4f}, {reference_scale[1]:.4f}, {reference_scale[2]:.4f}]")
+                    print(f"Reference scale: [{reference_scale[0]:.2f}, {reference_scale[1]:.2f}, {reference_scale[2]:.2f}]")
                     print(f"{'='*80}")
 
                     print(f"\nFound {len(differences)} frames with different size:\n")
                     print(f"{'Frame':<10} {'Scale [X, Y, Z]':<35} {'Diff X':<15} {'Diff Y':<15} {'Diff Z':<15}")
                     print("-" * 90)
                     for diff in differences:
-                        scale_str = f"[{diff['scale'][0]:.4f}, {diff['scale'][1]:.4f}, {diff['scale'][2]:.4f}]"
-                        print(f"{diff['frame']:<10} {scale_str:<35} {diff['diff_x']:<15.4f} {diff['diff_y']:<15.4f} {diff['diff_z']:<15.4f}")
+                        scale_str = f"[{diff['scale'][0]:.2f}, {diff['scale'][1]:.2f}, {diff['scale'][2]:.2f}]"
+                        print(f"{diff['frame']:<10} {scale_str:<35} {diff['diff_x']:<15.2f} {diff['diff_y']:<15.2f} {diff['diff_z']:<15.2f}")
 
         finally:
             client.logout()
