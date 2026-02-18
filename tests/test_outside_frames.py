@@ -10,6 +10,7 @@ def create_mock_shape(frame_id, outside=False):
     shape.frame = frame_id
     shape.outside = outside
     shape.points = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]  # position + rotation + scale
+    shape.attributes = {}  # Empty attributes 
     return shape
 
 
@@ -198,6 +199,7 @@ def test_segment_simplification():
         # Segment 2 (6-9): linear movement
         x_pos = float(i if i < 5 else i - 5)
         shape.points = [x_pos, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+        shape.attributes = {}  # Empty attributes list
         shapes.append(shape)
     
     result = handler.get_simplified_frame_ids(shapes, fields=None, iou_threshold=0.8, auto_percent=0)

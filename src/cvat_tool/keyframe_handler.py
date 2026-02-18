@@ -37,12 +37,18 @@ class KeyframeHandler:
         """Convert shapes to Keyframe objects."""
         keyframes = []
         for shape in shapes:
+            attributes = {}
+            if hasattr(shape, 'attributes') and shape.attributes:
+                for attr in shape.attributes:
+                    attributes[attr.spec_id] = attr.value
+            
             kf = Keyframe(
                 frame_id=shape.frame,
                 position=np.array(shape.points[:3], dtype=float),
                 rotation=np.array(shape.points[3:6], dtype=float),
                 scale=np.array(shape.points[6:9], dtype=float),
                 outside=shape.outside,
+                attributes=attributes,
             )
             keyframes.append(kf)
         return keyframes
@@ -222,6 +228,42 @@ class KeyframeHandler:
         
         return fields
 
+    def find_attribute_change_keyframes(self, keyframes: list[Keyframe]) -> set[int]:
+        """
+        Find indices of keyframes where any attribute value changes compared to the previous keyframe.
+        
+        Args:
+            keyframes: List of keyframes to analyze
+            
+        Returns:
+            Set of indices where attribute changes occur
+        """
+        if len(keyframes) < 2:
+            return set()
+        
+        change_indices = set()
+        
+        for i in range(1, len(keyframes)):
+            prev_attrs = keyframes[i - 1].attributes
+            curr_attrs = keyframes[i].attributes
+            
+            # Get all unique attribute spec_ids from both frames
+            all_spec_ids = set(prev_attrs.keys()) | set(curr_attrs.keys())
+            
+            # Check if any attribute changed
+            for spec_id in all_spec_ids:
+                prev_value = prev_attrs.get(spec_id)
+                curr_value = curr_attrs.get(spec_id)
+                
+                # If attribute value changed, mark this keyframe
+                if prev_value != curr_value:
+                    change_indices.add(i)
+                    print(f"Attribute change detected at frame {keyframes[i].frame_id}: "
+                          f"spec_id={spec_id}, {prev_value} -> {curr_value}")
+                    break  # No need to check other attributes for this frame
+        
+        return change_indices
+
     def simplifying(self, keyframes: list[Keyframe], iou_threshold: float = 0.8, fields: list[KeyframesField] = None, auto_percent: float = 5.0) -> list[Keyframe]:
         """Simplify a list of keyframes without outside frames."""
         # Auto-calculate fields if not provided
@@ -247,6 +289,12 @@ class KeyframeHandler:
                 arr = np.array([getattr(kf, field.keyframe_field.value) for kf in keyframes])
                 indices = set(choose_keyframes(arr, DISTANCE_FUNCTIONS[field.method], field.threshold))
                 keyframe_indices |= indices  # union
+        
+        # Add keyframes where attributes change
+        attribute_change_indices = self.find_attribute_change_keyframes(keyframes)
+        if attribute_change_indices:
+            print(f"Adding {len(attribute_change_indices)} keyframes due to attribute changes")
+            keyframe_indices |= attribute_change_indices  # union
         
         return [keyframes[i] for i in sorted(keyframe_indices)]
 

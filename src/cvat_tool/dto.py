@@ -27,6 +27,11 @@ class Keyframe:
     rotation: Vector
     scale: Vector
     outside: bool = False
+    attributes: dict[int, str] = None  # spec_id -> value mapping
+
+    def __post_init__(self):
+        if self.attributes is None:
+            self.attributes = {}
 
 class KeyframeField(enum.Enum):
     POSITION = "position"
