@@ -471,22 +471,43 @@ class KeyframeHandler:
         """
         label_map = {}
         try:
-            labels_response = client.api_client.labels_api.list(project_id=project_id)
-            
-            if hasattr(labels_response, 'results'):
-                for label in labels_response.results:
-                    if hasattr(label, 'id') and hasattr(label, 'name'):
-                        label_map[label.id] = label.name
-            elif isinstance(labels_response, tuple) and len(labels_response) > 0:
-                labels_list = labels_response[0]
-                if hasattr(labels_list, 'results'):
-                    for label in labels_list.results:
+            next_url = None
+            page = 1
+            while True:
+                if next_url is None:
+                    labels_response = client.api_client.labels_api.list(project_id=project_id, page=page)
+                else:
+                    # If next_url is present, extract page number from it
+                    import urllib.parse
+                    parsed = urllib.parse.urlparse(next_url)
+                    query = urllib.parse.parse_qs(parsed.query)
+                    page = int(query.get('page', [page])[0])
+                    labels_response = client.api_client.labels_api.list(project_id=project_id, page=page)
+
+                # Handle tuple or dict response
+                if isinstance(labels_response, tuple):
+                    data = labels_response[0]
+                else:
+                    data = labels_response
+                # If data is an object with .results, convert to dict
+                if hasattr(data, 'results'):
+                    results = data.results
+                    next_url = getattr(data, 'next', None)
+                else:
+                    results = data.get('results', [])
+                    next_url = data.get('next')
+                for label in results:
+                    # label may be dict or object
+                    if isinstance(label, dict):
+                        label_map[label['id']] = label['name']
+                    else:
                         if hasattr(label, 'id') and hasattr(label, 'name'):
                             label_map[label.id] = label.name
-                        
+                if not next_url:
+                    break
+                page += 1
         except Exception as e:
             print(f"Warning: Could not retrieve labels: {e}")
-        
         return label_map
 
     @staticmethod
@@ -525,6 +546,8 @@ class KeyframeHandler:
 
             # Get label names mapping from project
             label_map = self.get_label_map(client, job.project_id)
+            print(f"Retrieved {len(label_map)} labels from project {job.project_id}")
+            print(f"Label ID to Name mapping: {label_map}")
 
             # Process each track
             for track_index, track in enumerate(annotations_data.tracks):
